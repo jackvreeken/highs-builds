@@ -9,7 +9,7 @@ This repository provides pre-compiled HiGHS binaries for multiple platforms, bui
 - **HIPO solver** enabled (requires METIS and BLAS)
 - **OpenBLAS** integration from [openblas-builds](https://github.com/jackvreeken/openblas-builds)
 - **ZLIB** support
-- Both **shared and static** libraries (except musllinux: static-only)
+- Both **shared and static** libraries
 - **highs CLI executable**
 
 ## Supported Platforms
@@ -19,8 +19,6 @@ This repository provides pre-compiled HiGHS binaries for multiple platforms, bui
 - manylinux2014_x86_64
 - manylinux_2_28_x86_64
 - manylinux_2_28_aarch64
-- musllinux_1_2_x86_64 (static-only)
-- musllinux_1_2_aarch64 (static-only)
 
 ### macOS
 
@@ -68,7 +66,7 @@ Options:
 
 - `--prefix PATH` - Installation prefix (default: `install`)
 - `--rpath` - Add `$ORIGIN` RPATH for relocatable binaries (Linux only)
-- `--static-only` - Build static libraries only (for musllinux)
+- `--static-only` - Build static libraries only
 
 ### Environment Variables
 

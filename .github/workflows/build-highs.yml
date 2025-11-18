@@ -78,20 +78,6 @@ jobs:
             container: quay.io/pypa/manylinux_2_28_aarch64
             platform: linux
 
-          # Linux x86_64 - musllinux
-          - name: musllinux_1_2_x86_64
-            os: ubuntu-latest
-            container: quay.io/pypa/musllinux_1_2_x86_64
-            platform: linux
-            static_only: true
-
-          # Linux aarch64 - musllinux
-          - name: musllinux_1_2_aarch64
-            os: ubuntu-latest
-            container: quay.io/pypa/musllinux_1_2_aarch64
-            platform: linux
-            static_only: true
-
           # macOS
           - name: macos-14-arm64
             os: macos-14
@@ -123,16 +109,10 @@ jobs:
         uses: ./.github/actions/setup-build-env
 
       - name: Install dependencies (manylinux)
-        if: matrix.platform == 'linux' && startsWith(matrix.name, 'manylinux')
+        if: matrix.platform == 'linux'
         shell: bash
         run: |
           yum install -y metis-devel cmake ninja-build
-
-      - name: Install dependencies (musllinux)
-        if: matrix.platform == 'linux' && startsWith(matrix.name, 'musllinux')
-        shell: bash
-        run: |
-          apk add build-base git curl metis metis-dev cmake ninja || apk add build-base git curl cmake ninja
 
       - name: Download OpenBLAS
         shell: bash
@@ -144,24 +124,14 @@ jobs:
             curl -L https://github.com/jackvreeken/openblas-builds/releases/download/${{ env.OPENBLAS_VERSION }}/openblas-${{ env.OPENBLAS_VERSION }}-${{ matrix.name }}.tar.gz | tar -xz
           fi
 
-      - name: Build HiGHS (Linux manylinux)
-        if: matrix.platform == 'linux' && startsWith(matrix.name, 'manylinux')
+      - name: Build HiGHS (Linux)
+        if: matrix.platform == 'linux'
         shell: bash
         run: |
           export HIGHS_VERSION="${{ needs.check.outputs.version }}"
           export OPENBLAS_PLATFORM="${{ matrix.name }}"
           export LIBRARY_PATH=/github/workspace/lib64:$LIBRARY_PATH
           ./scripts/build-highs.sh --rpath
-
-      - name: Build HiGHS (Linux musllinux)
-        if: matrix.platform == 'linux' && startsWith(matrix.name, 'musllinux')
-        shell: bash
-        run: |
-          export HIGHS_VERSION="${{ needs.check.outputs.version }}"
-          export OPENBLAS_PLATFORM="${{ matrix.name }}"
-          export LIBRARY_PATH=/github/workspace/lib:$LIBRARY_PATH
-          export LD_LIBRARY_PATH=/github/workspace/lib:$LD_LIBRARY_PATH
-          ./scripts/build-highs.sh --rpath --static-only
 
       - name: Build HiGHS (macOS)
         if: matrix.platform == 'macos'
@@ -250,8 +220,6 @@ jobs:
             - manylinux2014_x86_64
             - manylinux_2_28_x86_64
             - manylinux_2_28_aarch64
-            - musllinux_1_2_x86_64 (static)
-            - musllinux_1_2_aarch64 (static)
             - macOS 14/15 (arm64)
             - Windows x64
 
