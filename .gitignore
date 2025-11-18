@@ -1,0 +1,29 @@
+# Build directories
+build/
+test-build/
+install/
+HiGHS/
+
+# OpenBLAS artifacts
+lib/
+lib64/
+include/
+
+# Artifacts
+*.tar.gz
+*.zip
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Claude
+.claude/
+
+# Temporary files
+*.swp
+*.swo
+*~

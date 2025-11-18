@@ -1,0 +1,265 @@
+---
+name: Build HiGHS
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      highs_version:
+        description: HiGHS version to build (e.g., v1.12.0)
+        required: false
+        type: string
+  schedule:
+    # Run weekly on Fridays at 02:00 UTC
+    - cron: '0 2 * * 5'
+
+env:
+  OPENBLAS_VERSION: v0.3.30
+
+jobs:
+  check:
+    name: Check HiGHS version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      should_build: ${{ steps.check_release.outputs.should_build }}
+    steps:
+      - name: Get HiGHS version
+        id: get_version
+        run: |
+          if [[ -n "${{ inputs.highs_version }}" ]]; then
+            VERSION="${{ inputs.highs_version }}"
+          else
+            VERSION=$(curl -s https://api.github.com/repos/ERGO-Code/HiGHS/releases/latest | jq -r .tag_name)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "HiGHS version: $VERSION"
+
+      - name: Check if release exists
+        id: check_release
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          if gh release view "$VERSION" --repo ${{ github.repository }} >/dev/null 2>&1; then
+            echo "Release $VERSION already exists"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "Release $VERSION does not exist, will build"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: check
+    if: needs.check.outputs.should_build == 'true' || github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 - manylinux2014
+          - name: manylinux2014_x86_64
+            os: ubuntu-latest
+            container: quay.io/pypa/manylinux2014_x86_64
+            platform: linux
+
+          # Linux x86_64 - manylinux_2_28
+          - name: manylinux_2_28_x86_64
+            os: ubuntu-latest
+            container: quay.io/pypa/manylinux_2_28_x86_64
+            platform: linux
+
+          # Linux aarch64 - manylinux_2_28
+          - name: manylinux_2_28_aarch64
+            os: ubuntu-latest
+            container: quay.io/pypa/manylinux_2_28_aarch64
+            platform: linux
+
+          # Linux x86_64 - musllinux
+          - name: musllinux_1_2_x86_64
+            os: ubuntu-latest
+            container: quay.io/pypa/musllinux_1_2_x86_64
+            platform: linux
+            static_only: true
+
+          # Linux aarch64 - musllinux
+          - name: musllinux_1_2_aarch64
+            os: ubuntu-latest
+            container: quay.io/pypa/musllinux_1_2_aarch64
+            platform: linux
+            static_only: true
+
+          # macOS
+          - name: macos-14-arm64
+            os: macos-14
+            platform: macos
+
+          - name: macos-15-arm64
+            os: macos-15
+            platform: macos
+
+          # Windows
+          - name: windows-x64
+            os: windows-latest
+            platform: windows
+
+    container: ${{ matrix.container }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        if: matrix.platform != 'linux'
+        uses: ./.github/actions/setup-build-env
+
+      - name: Install dependencies (manylinux)
+        if: matrix.platform == 'linux' && startsWith(matrix.name, 'manylinux')
+        shell: bash
+        run: |
+          yum install -y metis-devel cmake ninja-build
+
+      - name: Install dependencies (musllinux)
+        if: matrix.platform == 'linux' && startsWith(matrix.name, 'musllinux')
+        shell: bash
+        run: |
+          apk add metis-dev cmake ninja
+
+      - name: Download OpenBLAS
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "windows" ]]; then
+            curl -L -o openblas.zip https://github.com/jackvreeken/openblas-builds/releases/download/${{ env.OPENBLAS_VERSION }}/openblas-${{ env.OPENBLAS_VERSION }}-${{ matrix.name }}.zip
+            unzip openblas.zip
+          else
+            curl -L https://github.com/jackvreeken/openblas-builds/releases/download/${{ env.OPENBLAS_VERSION }}/openblas-${{ env.OPENBLAS_VERSION }}-${{ matrix.name }}.tar.gz | tar -xz
+          fi
+
+      - name: Build HiGHS (Linux manylinux)
+        if: matrix.platform == 'linux' && startsWith(matrix.name, 'manylinux')
+        shell: bash
+        run: |
+          export HIGHS_VERSION="${{ needs.check.outputs.version }}"
+          export OPENBLAS_PLATFORM="${{ matrix.name }}"
+          export LIBRARY_PATH=/github/workspace/lib64:$LIBRARY_PATH
+          ./scripts/build-highs.sh --rpath
+
+      - name: Build HiGHS (Linux musllinux)
+        if: matrix.platform == 'linux' && startsWith(matrix.name, 'musllinux')
+        shell: bash
+        run: |
+          export HIGHS_VERSION="${{ needs.check.outputs.version }}"
+          export OPENBLAS_PLATFORM="${{ matrix.name }}"
+          export LIBRARY_PATH=/github/workspace/lib:$LIBRARY_PATH
+          export LD_LIBRARY_PATH=/github/workspace/lib:$LD_LIBRARY_PATH
+          ./scripts/build-highs.sh --rpath --static-only
+
+      - name: Build HiGHS (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          export HIGHS_VERSION="${{ needs.check.outputs.version }}"
+          export OPENBLAS_PLATFORM="${{ matrix.name }}"
+          export LIBRARY_PATH="$PWD/lib:$LIBRARY_PATH"
+          export LD_LIBRARY_PATH="$PWD/lib:$LD_LIBRARY_PATH"
+          ./scripts/build-highs.sh
+
+      - name: Build HiGHS (Windows)
+        if: matrix.platform == 'windows'
+        shell: msys2 {0}
+        run: |
+          export HIGHS_VERSION="${{ needs.check.outputs.version }}"
+          export OPENBLAS_PLATFORM="${{ matrix.name }}"
+          export LIBRARY_PATH="$PWD/lib:$PWD/bin:$LIBRARY_PATH"
+          export LD_LIBRARY_PATH="$PWD/lib:$PWD/bin:$LD_LIBRARY_PATH"
+          ./scripts/build-highs.sh
+
+      - name: Verify build
+        shell: bash
+        run: |
+          if [[ ! -f install/build-complete ]]; then
+            echo "Build did not complete successfully"
+            exit 1
+          fi
+          echo "Build completed successfully"
+          ls -lh install/bin/ install/lib*/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: highs-${{ needs.check.outputs.version }}-${{ matrix.name }}
+          path: install/
+          retention-days: 7
+
+  release:
+    name: Create Release
+    needs: [check, build]
+    if: |
+      needs.check.outputs.should_build == 'true' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release archives
+        run: |
+          mkdir -p releases
+          cd artifacts
+          for dir in */; do
+            name="${dir%/}"
+            echo "Creating archive for $name"
+            if [[ "$name" == *"windows"* ]]; then
+              cd "$dir"
+              zip -r "../../releases/${name}.zip" .
+              cd ..
+            else
+              tar -czf "releases/${name}.tar.gz" -C "$dir" .
+            fi
+          done
+          cd ..
+          ls -lh releases/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.check.outputs.version }}
+          name: HiGHS ${{ needs.check.outputs.version }}
+          body: |
+            Pre-built HiGHS binaries for version ${{ needs.check.outputs.version }}
+
+            ## Features
+            - HIPO solver enabled (with METIS and OpenBLAS)
+            - ZLIB support
+            - OpenBLAS ${{ env.OPENBLAS_VERSION }}
+
+            ## Platforms
+            - manylinux2014_x86_64
+            - manylinux_2_28_x86_64
+            - manylinux_2_28_aarch64
+            - musllinux_1_2_x86_64 (static)
+            - musllinux_1_2_aarch64 (static)
+            - macOS 14/15 (arm64)
+            - Windows x64
+
+            ## Usage
+            Download the archive for your platform and extract it:
+            ```bash
+            # Linux/macOS
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ needs.check.outputs.version }}/highs-${{ needs.check.outputs.version }}-<platform>.tar.gz | tar -xz
+
+            # Windows
+            curl -L -o highs.zip https://github.com/${{ github.repository }}/releases/download/${{ needs.check.outputs.version }}/highs-${{ needs.check.outputs.version }}-windows-x64.zip
+            unzip highs.zip
+            ```
+          files: releases/*
+          draft: false
+          prerelease: false
