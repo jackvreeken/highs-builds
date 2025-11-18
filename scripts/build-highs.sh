@@ -33,14 +33,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Detect platform
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+uname_s=$(uname -s)
+if [[ "$uname_s" == "Linux" ]]; then
   PLATFORM="linux"
-elif [[ "$OSTYPE" == "darwin"* ]]; then
+elif [[ "$uname_s" == "Darwin" ]]; then
   PLATFORM="macos"
-elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+elif [[ "$uname_s" =~ ^(MSYS|MINGW|CYGWIN) ]]; then
   PLATFORM="windows"
 else
-  echo "Unsupported platform: $OSTYPE"
+  echo "Unsupported platform: $uname_s"
   exit 1
 fi
 

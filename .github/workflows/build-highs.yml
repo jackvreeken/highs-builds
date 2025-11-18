@@ -109,8 +109,14 @@ jobs:
     container: ${{ matrix.container }}
 
     steps:
+      - name: Set up QEMU
+        if: contains(matrix.name, 'aarch64')
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Setup build environment
         if: matrix.platform != 'linux'
@@ -126,7 +132,7 @@ jobs:
         if: matrix.platform == 'linux' && startsWith(matrix.name, 'musllinux')
         shell: bash
         run: |
-          apk add metis-dev cmake ninja
+          apk add build-base git curl metis metis-dev cmake ninja || apk add build-base git curl cmake ninja
 
       - name: Download OpenBLAS
         shell: bash
