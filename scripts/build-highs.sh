@@ -168,6 +168,8 @@ cmake_args=(
 
 # Set CMAKE_PREFIX_PATH to find OpenBLAS
 cmake_args+=(-DCMAKE_PREFIX_PATH="$(pwd)")
+# Add OpenBLAS include directory explicitly for cblas headers
+cmake_args+=(-DCMAKE_INCLUDE_PATH="$OPENBLAS_INCLUDE_DIR/openblas")
 
 # Shared vs static libraries
 if [[ "$static_only" == "true" ]]; then
