@@ -119,7 +119,7 @@ if [[ "$PLATFORM" == "windows" ]]; then
   openblas_archive="${openblas_url}.zip"
   echo "Downloading $openblas_archive"
   curl -L -o openblas.zip "$openblas_archive"
-  unzip -q openblas.zip
+  unzip -o -q openblas.zip
   rm openblas.zip
 else
   openblas_archive="${openblas_url}.tar.gz"
