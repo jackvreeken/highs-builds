@@ -74,7 +74,7 @@ jobs:
 
           # Linux aarch64 - manylinux_2_28
           - name: manylinux_2_28_aarch64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             platform: linux
             toolset: gcc-toolset-14
 
@@ -95,12 +95,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        if: contains(matrix.name, 'aarch64')
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       - name: Setup build environment
         if: matrix.platform != 'linux'
@@ -123,7 +117,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/work" -w /work --env-file <(env) \
             quay.io/pypa/${{ matrix.name }} \
-            bash -c "source /opt/rh/${{ matrix.toolset }}/enable && yum install -y metis-devel cmake ninja-build && curl -L https://github.com/jackvreeken/openblas-builds/releases/download/${{ env.OPENBLAS_VERSION }}/openblas-${{ env.OPENBLAS_VERSION }}-${{ matrix.name }}.tar.gz | tar -xz && export HIGHS_VERSION=${{ needs.check.outputs.version }} OPENBLAS_PLATFORM=${{ matrix.name }} LIBRARY_PATH=/work/lib64:\$LIBRARY_PATH && chmod +x scripts/build-highs.sh && ./scripts/build-highs.sh --rpath"
+            bash -c "yum install -y metis-devel cmake ninja-build && source /opt/rh/${{ matrix.toolset }}/enable && curl -L https://github.com/jackvreeken/openblas-builds/releases/download/${{ env.OPENBLAS_VERSION }}/openblas-${{ env.OPENBLAS_VERSION }}-${{ matrix.name }}.tar.gz | tar -xz && export HIGHS_VERSION=${{ needs.check.outputs.version }} OPENBLAS_PLATFORM=${{ matrix.name }} LIBRARY_PATH=/work/lib64:\$LIBRARY_PATH LD_LIBRARY_PATH=/work/lib64:\$LD_LIBRARY_PATH && chmod +x scripts/build-highs.sh && ./scripts/build-highs.sh --rpath"
 
       - name: Build HiGHS (macOS)
         if: matrix.platform == 'macos'
