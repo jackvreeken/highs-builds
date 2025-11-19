@@ -141,6 +141,14 @@ OPENBLAS_INCLUDE_DIR="$(pwd)/include"
 echo "OpenBLAS library directory: $OPENBLAS_LIB_DIR"
 echo "OpenBLAS include directory: $OPENBLAS_INCLUDE_DIR"
 echo ""
+echo "=== Debug: Environment Check ==="
+echo "LIBRARY_PATH: ${LIBRARY_PATH:-<not set>}"
+echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-<not set>}"
+echo "Platform: $PLATFORM"
+echo "MINGW_PREFIX: ${MINGW_PREFIX:-<not set>}"
+echo "Checking for OpenBLAS library files:"
+ls -la "$OPENBLAS_LIB_DIR" 2>/dev/null || echo "  Directory not found!"
+echo ""
 
 # Clone or update HiGHS repository
 echo "=== Fetching HiGHS Source ==="
@@ -186,6 +194,15 @@ fi
 
 # Enable HIPO solver if METIS is available
 # Check if METIS is installed
+echo "=== Debug: METIS Detection ==="
+echo "Checking for METIS..."
+echo "  pkg-config metis: $(pkg-config --exists metis 2>/dev/null && echo 'found' || echo 'not found')"
+echo "  /usr/include/metis.h: $([ -f /usr/include/metis.h ] && echo 'found' || echo 'not found')"
+echo "  /usr/local/include/metis.h: $([ -f /usr/local/include/metis.h ] && echo 'found' || echo 'not found')"
+if [[ -n "${MINGW_PREFIX:-}" ]]; then
+  echo "  ${MINGW_PREFIX}/include/metis.h: $([ -f "${MINGW_PREFIX}/include/metis.h" ] && echo 'found' || echo 'not found')"
+fi
+
 if pkg-config --exists metis 2>/dev/null || [[ -f /usr/include/metis.h ]] || [[ -f /usr/local/include/metis.h ]]; then
   echo "METIS found, enabling HIPO solver"
   cmake_args+=(-DHIPO=ON)
@@ -193,14 +210,17 @@ if pkg-config --exists metis 2>/dev/null || [[ -f /usr/include/metis.h ]] || [[ 
   cmake_args+=(-DBLA_VENDOR=OpenBLAS)
   # Set METIS_ROOT for HiGHS to find METIS
   if [[ -f /usr/include/metis.h ]]; then
+    echo "  Using METIS_ROOT=/usr"
     cmake_args+=(-DMETIS_ROOT=/usr)
   elif [[ -f /usr/local/include/metis.h ]]; then
+    echo "  Using METIS_ROOT=/usr/local"
     cmake_args+=(-DMETIS_ROOT=/usr/local)
   fi
 else
   echo "METIS not found, HIPO solver will be disabled"
   cmake_args+=(-DHIPO=OFF)
 fi
+echo ""
 
 # Add RPATH for relocatable binaries on Linux
 if [[ "$linux_rpath" == "true" && "$PLATFORM" == "linux" ]]; then
@@ -208,8 +228,12 @@ if [[ "$linux_rpath" == "true" && "$PLATFORM" == "linux" ]]; then
   cmake_args+=(-DCMAKE_INSTALL_RPATH='$ORIGIN:$ORIGIN/../lib')
 fi
 
+echo "=== Debug: CMake Configuration ==="
 echo "CMake arguments:"
 printf '  %s\n' "${cmake_args[@]}"
+echo ""
+echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH:-<not set>}"
+echo "CMAKE_INCLUDE_PATH: ${CMAKE_INCLUDE_PATH:-<not set>}"
 echo ""
 
 cmake "${cmake_args[@]}"
