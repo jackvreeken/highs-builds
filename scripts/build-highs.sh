@@ -178,6 +178,8 @@ cmake_args=(
 cmake_args+=(-DCMAKE_PREFIX_PATH="$(pwd)")
 # Add OpenBLAS include directory explicitly for cblas headers
 cmake_args+=(-DCMAKE_INCLUDE_PATH="$OPENBLAS_INCLUDE_DIR/openblas")
+# Add OpenBLAS library directory for FindBLAS
+cmake_args+=(-DCMAKE_LIBRARY_PATH="$OPENBLAS_LIB_DIR")
 
 # Shared vs static libraries
 if [[ "$static_only" == "true" ]]; then
@@ -209,7 +211,13 @@ if pkg-config --exists metis 2>/dev/null || [[ -f /usr/include/metis.h ]] || [[ 
   # Set BLAS vendor to OpenBLAS
   cmake_args+=(-DBLA_VENDOR=OpenBLAS)
   # Set METIS_ROOT for HiGHS to find METIS
-  if [[ -f /usr/include/metis.h ]]; then
+  if pkg-config --exists metis 2>/dev/null; then
+    metis_root=$(pkg-config --variable=prefix metis 2>/dev/null || echo "")
+    if [[ -n "$metis_root" ]]; then
+      echo "  Using METIS_ROOT=$metis_root (from pkg-config)"
+      cmake_args+=(-DMETIS_ROOT="$metis_root")
+    fi
+  elif [[ -f /usr/include/metis.h ]]; then
     echo "  Using METIS_ROOT=/usr"
     cmake_args+=(-DMETIS_ROOT=/usr)
   elif [[ -f /usr/local/include/metis.h ]]; then
