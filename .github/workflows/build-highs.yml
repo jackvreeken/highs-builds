@@ -117,7 +117,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/work" -w /work --env-file <(env) \
             quay.io/pypa/${{ matrix.name }} \
-            bash -c "yum install -y metis-devel cmake ninja-build && source /opt/rh/${{ matrix.toolset }}/enable && curl -L https://github.com/jackvreeken/openblas-builds/releases/download/${{ env.OPENBLAS_VERSION }}/openblas-${{ env.OPENBLAS_VERSION }}-${{ matrix.name }}.tar.gz | tar -xz && export HIGHS_VERSION=${{ needs.check.outputs.version }} OPENBLAS_PLATFORM=${{ matrix.name }} LIBRARY_PATH=/work/lib64:\$LIBRARY_PATH LD_LIBRARY_PATH=/work/lib64:\$LD_LIBRARY_PATH && chmod +x scripts/build-highs.sh && ./scripts/build-highs.sh --rpath"
+            bash -c "yum install -y metis-devel cmake ninja-build && source /opt/rh/${{ matrix.toolset }}/enable && curl -L https://github.com/jackvreeken/openblas-builds/releases/download/${{ env.OPENBLAS_VERSION }}/openblas-${{ env.OPENBLAS_VERSION }}-${{ matrix.name }}.tar.gz | tar -xz && LIBDIR=\$([ -d /work/lib64 ] && echo lib64 || echo lib) && export HIGHS_VERSION=${{ needs.check.outputs.version }} OPENBLAS_PLATFORM=${{ matrix.name }} LIBRARY_PATH=/work/\$LIBDIR:\$LIBRARY_PATH LD_LIBRARY_PATH=/work/\$LIBDIR:\$LD_LIBRARY_PATH && chmod +x scripts/build-highs.sh && ./scripts/build-highs.sh --rpath"
 
       - name: Build HiGHS (macOS)
         if: matrix.platform == 'macos'
