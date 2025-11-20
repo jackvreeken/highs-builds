@@ -210,6 +210,10 @@ if pkg-config --exists metis 2>/dev/null || [[ -f /usr/include/metis.h ]] || [[ 
   cmake_args+=(-DHIPO=ON)
   # Set BLAS vendor to OpenBLAS
   cmake_args+=(-DBLA_VENDOR=OpenBLAS)
+  # Manually specify BLAS library to bypass FindBLAS search issues
+  cmake_args+=(-DBLAS_LIBRARIES="$OPENBLAS_LIB_DIR/libopenblas.so")
+  cmake_args+=(-DBLAS_LINKER_FLAGS="-L$OPENBLAS_LIB_DIR")
+  echo "  Setting BLAS_LIBRARIES=$OPENBLAS_LIB_DIR/libopenblas.so"
   # Set METIS_ROOT for HiGHS to find METIS
   if pkg-config --exists metis 2>/dev/null; then
     metis_root=$(pkg-config --variable=prefix metis 2>/dev/null || echo "")
