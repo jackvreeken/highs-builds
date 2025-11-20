@@ -141,14 +141,6 @@ OPENBLAS_INCLUDE_DIR="$(pwd)/include"
 echo "OpenBLAS library directory: $OPENBLAS_LIB_DIR"
 echo "OpenBLAS include directory: $OPENBLAS_INCLUDE_DIR"
 echo ""
-echo "=== Debug: Environment Check ==="
-echo "LIBRARY_PATH: ${LIBRARY_PATH:-<not set>}"
-echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-<not set>}"
-echo "Platform: $PLATFORM"
-echo "MINGW_PREFIX: ${MINGW_PREFIX:-<not set>}"
-echo "Checking for OpenBLAS library files:"
-ls -la "$OPENBLAS_LIB_DIR" 2>/dev/null || echo "  Directory not found!"
-echo ""
 
 # Clone or update HiGHS repository
 echo "=== Fetching HiGHS Source ==="
@@ -195,16 +187,6 @@ else
 fi
 
 # Enable HIPO solver if METIS is available
-# Check if METIS is installed
-echo "=== Debug: METIS Detection ==="
-echo "Checking for METIS..."
-echo "  pkg-config metis: $(pkg-config --exists metis 2>/dev/null && echo 'found' || echo 'not found')"
-echo "  /usr/include/metis.h: $([ -f /usr/include/metis.h ] && echo 'found' || echo 'not found')"
-echo "  /usr/local/include/metis.h: $([ -f /usr/local/include/metis.h ] && echo 'found' || echo 'not found')"
-if [[ -n "${MINGW_PREFIX:-}" ]]; then
-  echo "  ${MINGW_PREFIX}/include/metis.h: $([ -f "${MINGW_PREFIX}/include/metis.h" ] && echo 'found' || echo 'not found')"
-fi
-
 if pkg-config --exists metis 2>/dev/null || [[ -f /usr/include/metis.h ]] || [[ -f /usr/local/include/metis.h ]]; then
   echo "METIS found, enabling HIPO solver"
   cmake_args+=(-DHIPO=ON)
@@ -239,49 +221,6 @@ if [[ "$linux_rpath" == "true" && "$PLATFORM" == "linux" ]]; then
   cmake_args+=(-DCMAKE_BUILD_RPATH_USE_ORIGIN=ON)
   cmake_args+=(-DCMAKE_INSTALL_RPATH='$ORIGIN:$ORIGIN/../lib')
 fi
-
-echo "=== Debug: CMake Configuration ==="
-echo "CMake arguments:"
-printf '  %s\n' "${cmake_args[@]}"
-echo ""
-echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH:-<not set>}"
-echo "CMAKE_INCLUDE_PATH: ${CMAKE_INCLUDE_PATH:-<not set>}"
-echo "CMAKE_LIBRARY_PATH: ${CMAKE_LIBRARY_PATH:-<not set>}"
-echo ""
-echo "=== Debug: BLAS Library Detection ==="
-echo "OpenBLAS library directory contents:"
-ls -lh "$OPENBLAS_LIB_DIR"/ 2>/dev/null || echo "  Directory not accessible!"
-echo ""
-echo "Checking for specific OpenBLAS files:"
-for lib in libopenblas.so libopenblas.a libopenblas.so.0; do
-  if [[ -f "$OPENBLAS_LIB_DIR/$lib" ]]; then
-    echo "  $lib: found ($(file "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null || echo 'file type unknown'))"
-    # Check if library contains sgemm_ symbol
-    if command -v nm >/dev/null 2>&1; then
-      # Try different symbol name patterns
-      echo "    -> Checking for BLAS symbols:"
-      for symbol in "sgemm_" "sgemm" "SGEMM" "cblas_sgemm"; do
-        if nm -D "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | grep -i "$symbol" | head -1; then
-          echo "       Found variant of '$symbol'"
-        fi
-      done
-      # Show first 10 exported symbols to understand naming convention
-      echo "    -> Sample exported symbols:"
-      nm -D "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | head -10 || echo "       (nm -D failed, trying nm without -D)"
-      if ! nm -D "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | head -1 >/dev/null 2>&1; then
-        nm "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | grep -i "sgemm" | head -3 || echo "       (no sgemm symbols found)"
-      fi
-    fi
-  else
-    echo "  $lib: NOT FOUND"
-  fi
-done
-echo ""
-echo "Library search paths for FindBLAS:"
-echo "  CMAKE_PREFIX_PATH will be set to: $(pwd)"
-echo "  CMAKE_LIBRARY_PATH will be set to: $OPENBLAS_LIB_DIR"
-echo "  BLA_VENDOR will be set to: OpenBLAS"
-echo ""
 
 cmake "${cmake_args[@]}"
 
