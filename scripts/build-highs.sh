@@ -62,42 +62,23 @@ if [[ -n "${OPENBLAS_PLATFORM:-}" ]]; then
 else
   # Auto-detect based on runner/container
   if [[ "$PLATFORM" == "linux" ]]; then
-    # Check for manylinux/musllinux markers
+    # Check for manylinux markers
     if [[ -f /etc/os-release ]]; then
-      if grep -q "Alpine" /etc/os-release; then
-        # musllinux
-        if [[ "$(uname -m)" == "x86_64" ]]; then
-          openblas_platform="musllinux_1_2_x86_64"
-        elif [[ "$(uname -m)" == "aarch64" ]]; then
-          openblas_platform="musllinux_1_2_aarch64"
-        fi
-      elif [[ -f /etc/redhat-release ]]; then
+      if [[ -f /etc/redhat-release ]]; then
         # manylinux
         if grep -q "release 7" /etc/redhat-release; then
-          # manylinux2014
-          if [[ "$(uname -m)" == "x86_64" ]]; then
-            openblas_platform="manylinux2014_x86_64"
-          elif [[ "$(uname -m)" == "aarch64" ]]; then
-            openblas_platform="manylinux2014_aarch64"
-          fi
+          # manylinux2014 (x86_64 only)
+          openblas_platform="manylinux2014_x86_64"
         else
-          # manylinux_2_28 or newer
-          if [[ "$(uname -m)" == "x86_64" ]]; then
-            openblas_platform="manylinux_2_28_x86_64"
-          elif [[ "$(uname -m)" == "aarch64" ]]; then
-            openblas_platform="manylinux_2_28_aarch64"
-          fi
+          # manylinux_2_28 or newer (x86_64 only)
+          openblas_platform="manylinux_2_28_x86_64"
         fi
       fi
     fi
 
-    # Fallback for generic Linux
+    # Fallback for generic Linux (x86_64 only)
     if [[ -z "${openblas_platform:-}" ]]; then
-      if [[ "$(uname -m)" == "x86_64" ]]; then
-        openblas_platform="manylinux_2_28_x86_64"
-      elif [[ "$(uname -m)" == "aarch64" ]]; then
-        openblas_platform="manylinux_2_28_aarch64"
-      fi
+      openblas_platform="manylinux_2_28_x86_64"
     fi
   elif [[ "$PLATFORM" == "macos" ]]; then
     # Detect macOS version
@@ -192,10 +173,6 @@ if pkg-config --exists metis 2>/dev/null || [[ -f /usr/include/metis.h ]] || [[ 
   cmake_args+=(-DHIPO=ON)
   # Set BLAS vendor to OpenBLAS
   cmake_args+=(-DBLA_VENDOR=OpenBLAS)
-  # Manually specify BLAS library to bypass FindBLAS search issues
-  cmake_args+=(-DBLAS_LIBRARIES="$OPENBLAS_LIB_DIR/libopenblas.so")
-  cmake_args+=(-DBLAS_LINKER_FLAGS="-L$OPENBLAS_LIB_DIR")
-  echo "  Setting BLAS_LIBRARIES=$OPENBLAS_LIB_DIR/libopenblas.so"
   # Set METIS_ROOT for HiGHS to find METIS
   if pkg-config --exists metis 2>/dev/null; then
     metis_root=$(pkg-config --variable=prefix metis 2>/dev/null || echo "")

@@ -94,16 +94,6 @@ jobs:
         if: matrix.platform != 'linux'
         uses: ./.github/actions/setup-build-env
 
-      - name: Download OpenBLAS
-        shell: bash
-        run: |
-          if [[ "${{ matrix.platform }}" == "windows" ]]; then
-            curl -L -o openblas.zip https://github.com/jackvreeken/openblas-builds/releases/download/${{ env.OPENBLAS_VERSION }}/openblas-${{ env.OPENBLAS_VERSION }}-${{ matrix.name }}.zip
-            unzip -o openblas.zip
-          else
-            curl -L https://github.com/jackvreeken/openblas-builds/releases/download/${{ env.OPENBLAS_VERSION }}/openblas-${{ env.OPENBLAS_VERSION }}-${{ matrix.name }}.tar.gz | tar -xz
-          fi
-
       - name: Build HiGHS (Linux)
         if: matrix.platform == 'linux'
         shell: bash
