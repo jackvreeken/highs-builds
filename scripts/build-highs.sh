@@ -242,6 +242,33 @@ printf '  %s\n' "${cmake_args[@]}"
 echo ""
 echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH:-<not set>}"
 echo "CMAKE_INCLUDE_PATH: ${CMAKE_INCLUDE_PATH:-<not set>}"
+echo "CMAKE_LIBRARY_PATH: ${CMAKE_LIBRARY_PATH:-<not set>}"
+echo ""
+echo "=== Debug: BLAS Library Detection ==="
+echo "OpenBLAS library directory contents:"
+ls -lh "$OPENBLAS_LIB_DIR"/ 2>/dev/null || echo "  Directory not accessible!"
+echo ""
+echo "Checking for specific OpenBLAS files:"
+for lib in libopenblas.so libopenblas.a libopenblas.so.0; do
+  if [[ -f "$OPENBLAS_LIB_DIR/$lib" ]]; then
+    echo "  $lib: found ($(file "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null || echo 'file type unknown'))"
+    # Check if library contains sgemm_ symbol
+    if command -v nm >/dev/null 2>&1; then
+      if nm -D "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | grep -q "sgemm_"; then
+        echo "    -> Contains sgemm_ symbol: YES"
+      else
+        echo "    -> Contains sgemm_ symbol: NO or not a dynamic library"
+      fi
+    fi
+  else
+    echo "  $lib: NOT FOUND"
+  fi
+done
+echo ""
+echo "Library search paths for FindBLAS:"
+echo "  CMAKE_PREFIX_PATH will be set to: $(pwd)"
+echo "  CMAKE_LIBRARY_PATH will be set to: $OPENBLAS_LIB_DIR"
+echo "  BLA_VENDOR will be set to: OpenBLAS"
 echo ""
 
 cmake "${cmake_args[@]}"
