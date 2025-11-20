@@ -167,6 +167,11 @@ else
   fi
 fi
 
+# Use old C++11 ABI on Linux for manylinux compatibility
+if [[ "$PLATFORM" == "linux" ]]; then
+  cmake_args+=(-DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0")
+fi
+
 # Enable HIPO solver if METIS is available
 if pkg-config --exists metis 2>/dev/null || [[ -f /usr/include/metis.h ]] || [[ -f /usr/local/include/metis.h ]]; then
   echo "METIS found, enabling HIPO solver"
