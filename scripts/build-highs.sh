@@ -254,10 +254,18 @@ for lib in libopenblas.so libopenblas.a libopenblas.so.0; do
     echo "  $lib: found ($(file "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null || echo 'file type unknown'))"
     # Check if library contains sgemm_ symbol
     if command -v nm >/dev/null 2>&1; then
-      if nm -D "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | grep -q "sgemm_"; then
-        echo "    -> Contains sgemm_ symbol: YES"
-      else
-        echo "    -> Contains sgemm_ symbol: NO or not a dynamic library"
+      # Try different symbol name patterns
+      echo "    -> Checking for BLAS symbols:"
+      for symbol in "sgemm_" "sgemm" "SGEMM" "cblas_sgemm"; do
+        if nm -D "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | grep -i "$symbol" | head -1; then
+          echo "       Found variant of '$symbol'"
+        fi
+      done
+      # Show first 10 exported symbols to understand naming convention
+      echo "    -> Sample exported symbols:"
+      nm -D "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | head -10 || echo "       (nm -D failed, trying nm without -D)"
+      if ! nm -D "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | head -1 >/dev/null 2>&1; then
+        nm "$OPENBLAS_LIB_DIR/$lib" 2>/dev/null | grep -i "sgemm" | head -3 || echo "       (no sgemm symbols found)"
       fi
     fi
   else
