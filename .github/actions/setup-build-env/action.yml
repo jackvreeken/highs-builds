@@ -21,5 +21,7 @@ runs:
     - name: Install dependencies (macOS)
       if: runner.os == 'macOS'
       shell: bash
+      env:
+        HOMEBREW_NO_INSTALL_UPGRADE: 1
       run: |
         brew install gcc metis cmake ninja
