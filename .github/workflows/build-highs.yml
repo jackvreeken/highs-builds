@@ -166,7 +166,7 @@ jobs:
               zip -r "../../releases/${name}.zip" .
               cd ..
             else
-              tar -czf "releases/${name}.tar.gz" -C "$dir" .
+              tar -czf "../releases/${name}.tar.gz" -C "$dir" .
             fi
           done
           cd ..
