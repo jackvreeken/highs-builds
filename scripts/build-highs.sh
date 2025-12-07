@@ -158,13 +158,7 @@ cmake_args+=(-DCMAKE_LIBRARY_PATH="$OPENBLAS_LIB_DIR")
 if [[ "$static_only" == "true" ]]; then
   cmake_args+=(-DBUILD_SHARED_LIBS=OFF)
 else
-  if [[ "$PLATFORM" == "windows" ]]; then
-    # Windows: prefer static by default
-    cmake_args+=(-DBUILD_SHARED_LIBS=OFF)
-  else
-    # Unix: build shared libraries
-    cmake_args+=(-DBUILD_SHARED_LIBS=ON)
-  fi
+  cmake_args+=(-DBUILD_SHARED_LIBS=ON)
 fi
 
 # Use old C++11 ABI on Linux for manylinux compatibility
