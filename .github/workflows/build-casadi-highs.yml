@@ -20,16 +20,25 @@ concurrency:
 
 env:
   CASADI_VERSION: 3.8.1
-  PLATFORM: manylinux_2_28_x86_64
+  # The Windows image is the one CasADi builds its wheels with (MXE GCC 11.2).
+  PLATFORMS: |
+    [
+      {"platform": "manylinux_2_28_x86_64", "runner": "ubuntu-latest", "image": "quay.io/pypa/manylinux_2_28_x86_64"},
+      {"platform": "manylinux_2_28_aarch64", "runner": "ubuntu-24.04-arm", "image": "quay.io/pypa/manylinux_2_28_aarch64"},
+      {"platform": "win_amd64", "runner": "ubuntu-latest",
+       "image": "ghcr.io/jgillis/windows-shared-x64-posix@sha256:8c43a28a28e34fa1e5088c9ad6d9f85cb43691d40fe0ecdaf95c5598bde57d71"}
+    ]
 
 jobs:
   plan:
-    name: Select HiGHS versions
+    name: Select builds
     runs-on: ubuntu-latest
     outputs:
+      builds: ${{ steps.select.outputs.builds }}
       versions: ${{ steps.select.outputs.versions }}
+      windows_versions: ${{ steps.select.outputs.windows_versions }}
     steps:
-      - name: Select versions
+      - name: Select builds
         id: select
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,19 +53,118 @@ jobs:
               | awk -F. '$2 >= 10 { latest[$2] = $0 } END { for (m in latest) print latest[m] }' | sort -V)
           fi
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            versions=$(printf '%s\n' "$candidates" | sed -n '1p;$p' | sort -uV)
-          else
-            versions=$(for v in $candidates; do
-              gh release view "casadi-$CASADI_VERSION-highs-$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || echo "$v"
-            done)
+            candidates=$(printf '%s\n' "$candidates" | sed -n '1p;$p' | sort -uV)
           fi
-          echo "Versions to build:" $versions
-          echo "versions=$(printf '%s\n' $versions | jq -Rcs 'split("\n") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+          # One "<version> <platform>" line per release asset that does not exist yet
+          missing=$(for v in $candidates; do
+            assets=""
+            if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
+              assets=$(gh release view "casadi-$CASADI_VERSION-highs-$v" --repo "$GITHUB_REPOSITORY" \
+                --json assets --jq '.assets[].name' 2>/dev/null || true)
+            fi
+            for p in $(jq -r '.[].platform' <<< "$PLATFORMS"); do
+              grep -q "^casadi-$CASADI_VERSION-highs-$v-$p\." <<< "$assets" || echo "$v $p"
+            done
+          done)
+          builds=$(jq -Rnc --argjson platforms "$PLATFORMS" \
+            '[inputs | select(length > 0) | split(" ") as [$v, $p] | $platforms[] | select(.platform == $p) | . + {highs_version: $v}]' \
+            <<< "$missing")
+          echo "Builds: $builds"
+          echo "builds=$builds" >> "$GITHUB_OUTPUT"
+          echo "versions=$(jq -c '[.[].highs_version] | unique' <<< "$builds")" >> "$GITHUB_OUTPUT"
+          echo "windows_versions=$(jq -c '[.[] | select(.platform == "win_amd64") | .highs_version]' <<< "$builds")" >> "$GITHUB_OUTPUT"
 
   build:
-    name: HiGHS ${{ matrix.highs_version }}
+    name: HiGHS ${{ matrix.highs_version }} ${{ matrix.platform }}
     needs: plan
-    if: needs.plan.outputs.versions != '[]'
+    if: needs.plan.outputs.builds != '[]'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.builds) }}
+    env:
+      HIGHS_VERSION: ${{ matrix.highs_version }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION -e CASADI_VERSION \
+            ${{ matrix.image }} bash scripts/build-casadi-highs.sh
+
+      - name: Test
+        if: matrix.platform != 'win_amd64'
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION -e CASADI_VERSION \
+            ${{ matrix.image }} bash scripts/test-casadi-highs.sh
+
+      - name: Package
+        run: |
+          name="casadi-$CASADI_VERSION-highs-$HIGHS_VERSION"
+          if [[ "$PLATFORM" == win_amd64 ]]; then
+            (cd "dist/$name" && zip -q "$GITHUB_WORKSPACE/$name-$PLATFORM.zip" *)
+          else
+            tar -czf "$name-$PLATFORM.tar.gz" -C "dist/$name" .
+          fi
+
+      # Windows archives are released only once test-windows has passed
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform == 'win_amd64' && 'untested' || 'release' }}-${{ matrix.highs_version }}-${{ matrix.platform }}
+          path: casadi-*-highs-*-${{ matrix.platform }}.*
+          retention-days: 7
+
+  test-windows:
+    name: Test HiGHS ${{ matrix.highs_version }} win_amd64
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.outputs.windows_versions != '[]' }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        highs_version: ${{ fromJSON(needs.plan.outputs.windows_versions) }}
+    env:
+      HIGHS_VERSION: ${{ matrix.highs_version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download archive
+        uses: actions/download-artifact@v4
+        with:
+          name: untested-${{ matrix.highs_version }}-win_amd64
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Test
+        run: |
+          name="casadi-$CASADI_VERSION-highs-$HIGHS_VERSION"
+          mkdir -p "dist/$name"
+          unzip -q "$name-win_amd64.zip" -d "dist/$name"
+          git clone --depth 1 --branch "$CASADI_VERSION" https://github.com/casadi/casadi.git build-casadi/casadi-src
+          PYTHON=python scripts/test-casadi-highs.sh
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.highs_version }}-win_amd64
+          path: casadi-*-highs-*-win_amd64.zip
+          retention-days: 7
+
+  release:
+    name: Release HiGHS ${{ matrix.highs_version }}
+    needs: [plan, build, test-windows]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.plan.outputs.versions != '[]' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -67,33 +175,43 @@ jobs:
     env:
       HIGHS_VERSION: ${{ matrix.highs_version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-${{ matrix.highs_version }}-*
+          merge-multiple: true
+          path: assets
 
-      - name: Build and test
-        run: |
-          docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION -e CASADI_VERSION \
-            quay.io/pypa/$PLATFORM \
-            bash -c "scripts/build-casadi-highs.sh && scripts/test-casadi-highs.sh"
-
-      - name: Create release
-        if: github.event_name != 'pull_request'
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          shopt -s nullglob
+          archives=(assets/*)
+          if (( ${#archives[@]} == 0 )); then
+            echo "No tested archives for $HIGHS_VERSION"
+            exit 1
+          fi
           export name="casadi-$CASADI_VERSION-highs-$HIGHS_VERSION"
-          tar -czf "$name-$PLATFORM.tar.gz" -C "dist/$name" .
-          envsubst '$CASADI_VERSION $HIGHS_VERSION $PLATFORM $GITHUB_REPOSITORY $name' > notes.md <<'EOF'
+          envsubst '$CASADI_VERSION $HIGHS_VERSION $GITHUB_REPOSITORY $name' > notes.md <<'EOF'
           `libhighs` and `libcasadi_conic_highs` built against HiGHS $HIGHS_VERSION, as a drop-in
-          replacement for the pair bundled in the CasADi $CASADI_VERSION $PLATFORM (abi3) wheels.
+          replacement for the pair bundled in the CasADi $CASADI_VERSION abi3 wheels for
+          `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64` and `win_amd64`.
 
           ## Usage
+          Remove the bundled HiGHS libraries from the installed `casadi` package and extract the
+          archive for your platform in their place:
           ```bash
-          casadi_dir=$(python -c 'import casadi, os; print(os.path.dirname(casadi.__file__))')
-          rm -f "$casadi_dir"/libhighs.so* "$casadi_dir"/libcasadi_conic_highs.so*
-          curl -L https://github.com/$GITHUB_REPOSITORY/releases/download/$name/$name-$PLATFORM.tar.gz \
+          casadi_dir=$(python -c 'import casadi, pathlib; print(pathlib.Path(casadi.__file__).parent.as_posix())')
+          rm -f "$casadi_dir"/libhighs.* "$casadi_dir"/libcasadi_conic_highs.*
+          curl -L https://github.com/$GITHUB_REPOSITORY/releases/download/$name/$name-manylinux_2_28_x86_64.tar.gz \
             | tar -xz -C "$casadi_dir"
           ```
           EOF
-          gh release create "$name" "$name-$PLATFORM.tar.gz" --repo "$GITHUB_REPOSITORY" \
-            --title "HiGHS $HIGHS_VERSION for CasADi $CASADI_VERSION" --latest=false --notes-file notes.md
+          if gh release view "$name" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$name" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+          else
+            gh release create "$name" --repo "$GITHUB_REPOSITORY" \
+              --title "HiGHS $HIGHS_VERSION for CasADi $CASADI_VERSION" --latest=false --notes-file notes.md
+          fi
+          gh release upload "$name" "${archives[@]}" --repo "$GITHUB_REPOSITORY" --clobber
