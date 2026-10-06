@@ -20,6 +20,9 @@ fi
 git -C "$src" checkout -- .
 git -C "$src" apply "$patch_dir"/*.patch
 
+# MXE targets the Windows XP API, which lacks the processor-group calls newer HiGHS makes
+[[ "${CXX:-}" == *mingw* ]] && export CXXFLAGS="${CXXFLAGS:-} -D_WIN32_WINNT=0x0601"
+
 # The thread flags must match the wheel's include/casadi/config.h, or class layouts differ.
 cmake -S "$src" -B "$BUILD_DIR/casadi-build" \
   -DCMAKE_BUILD_TYPE=Release \
