@@ -23,6 +23,10 @@ git -C "$src" apply "$patch_dir"/*.patch
 # MXE targets the Windows XP API, which lacks the processor-group calls newer HiGHS makes
 [[ "${CXX:-}" == *mingw* ]] && export CXXFLAGS="${CXXFLAGS:-} -D_WIN32_WINNT=0x0601"
 
+highs_flags=()
+# ExternalProject can only shallow-clone a branch or tag
+[[ "$HIGHS_VERSION" =~ ^[0-9a-f]{40}$ ]] && highs_flags+=(-DBUILD_HIGHS_GIT_SHALLOW=OFF)
+
 # The thread flags must match the wheel's include/casadi/config.h, or class layouts differ.
 cmake -S "$src" -B "$BUILD_DIR/casadi-build" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -30,7 +34,8 @@ cmake -S "$src" -B "$BUILD_DIR/casadi-build" \
   -DWITH_BUILD_HIGHS=ON \
   -DWITH_THREAD=ON \
   -DWITH_THREADSAFE_SYMBOLICS=ON \
-  -DBUILD_HIGHS_VERSION="$HIGHS_VERSION"
+  -DBUILD_HIGHS_VERSION="$HIGHS_VERSION" \
+  "${highs_flags[@]}"
 cmake --build "$BUILD_DIR/casadi-build" --target casadi_conic_highs -j"$(nproc)"
 
 build="$BUILD_DIR/casadi-build"

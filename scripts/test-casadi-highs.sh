@@ -24,7 +24,11 @@ import casadi as ca
 x = ca.SX.sym("x")
 ca.qpsol("s", "highs", {"x": x, "f": x**2})(lbx=1)' 2>&1 | grep "Running HiGHS")"
 echo "$banner"
-[[ "$banner" == "Running HiGHS ${HIGHS_VERSION#v} "* ]]
+if [[ "$HIGHS_VERSION" =~ ^[0-9a-f]{40}$ ]]; then
+  [[ "$banner" == *"git hash: ${HIGHS_VERSION:0:7}"* ]]
+else
+  [[ "$banner" == "Running HiGHS ${HIGHS_VERSION#v} "* ]]
+fi
 
 cd "$BUILD_DIR/casadi-src/test/python"
 "$python" conic.py
