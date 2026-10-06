@@ -1,0 +1,99 @@
+name: Build HiGHS for CasADi
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      highs_versions:
+        description: Space-separated HiGHS versions (e.g., v1.15.1); defaults to the latest patch of each minor from v1.10
+        required: false
+        type: string
+  schedule:
+    # Run weekly on Fridays at 03:00 UTC
+    - cron: '0 3 * * 5'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+
+env:
+  CASADI_VERSION: 3.8.1
+  PLATFORM: manylinux_2_28_x86_64
+
+jobs:
+  plan:
+    name: Select HiGHS versions
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.select.outputs.versions }}
+    steps:
+      - name: Select versions
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.highs_versions }}
+        run: |
+          if [[ -n "$REQUESTED" ]]; then
+            candidates=$(printf '%s\n' $REQUESTED | sort -V)
+          else
+            candidates=$(gh release list --repo ERGO-Code/HiGHS --limit 100 --exclude-drafts --exclude-pre-releases \
+                --json tagName --jq '.[].tagName' \
+              | grep -E '^v1\.[0-9]+\.[0-9]+$' | sort -V \
+              | awk -F. '$2 >= 10 { latest[$2] = $0 } END { for (m in latest) print latest[m] }' | sort -V)
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            versions=$(printf '%s\n' "$candidates" | sed -n '1p;$p' | sort -uV)
+          else
+            versions=$(for v in $candidates; do
+              gh release view "casadi-$CASADI_VERSION-highs-$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || echo "$v"
+            done)
+          fi
+          echo "Versions to build:" $versions
+          echo "versions=$(printf '%s\n' $versions | jq -Rcs 'split("\n") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: HiGHS ${{ matrix.highs_version }}
+    needs: plan
+    if: needs.plan.outputs.versions != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        highs_version: ${{ fromJSON(needs.plan.outputs.versions) }}
+    env:
+      HIGHS_VERSION: ${{ matrix.highs_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and test
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION -e CASADI_VERSION \
+            quay.io/pypa/$PLATFORM \
+            bash -c "scripts/build-casadi-highs.sh && scripts/test-casadi-highs.sh"
+
+      - name: Create release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          export name="casadi-$CASADI_VERSION-highs-$HIGHS_VERSION"
+          tar -czf "$name-$PLATFORM.tar.gz" -C "dist/$name" .
+          envsubst '$CASADI_VERSION $HIGHS_VERSION $PLATFORM $GITHUB_REPOSITORY $name' > notes.md <<'EOF'
+          `libhighs` and `libcasadi_conic_highs` built against HiGHS $HIGHS_VERSION, as a drop-in
+          replacement for the pair bundled in the CasADi $CASADI_VERSION $PLATFORM (abi3) wheels.
+
+          ## Usage
+          ```bash
+          casadi_dir=$(python -c 'import casadi, os; print(os.path.dirname(casadi.__file__))')
+          rm -f "$casadi_dir"/libhighs.so* "$casadi_dir"/libcasadi_conic_highs.so*
+          curl -L https://github.com/$GITHUB_REPOSITORY/releases/download/$name/$name-$PLATFORM.tar.gz \
+            | tar -xz -C "$casadi_dir"
+          ```
+          EOF
+          gh release create "$name" "$name-$PLATFORM.tar.gz" --repo "$GITHUB_REPOSITORY" \
+            --title "HiGHS $HIGHS_VERSION for CasADi $CASADI_VERSION" --latest=false --notes-file notes.md

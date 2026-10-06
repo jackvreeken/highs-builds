@@ -27,3 +27,7 @@ include/
 *.swp
 *.swo
 *~
+
+# CasADi plugin builds
+build-casadi/
+dist/

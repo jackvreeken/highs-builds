@@ -1,0 +1,38 @@
+#!/bin/bash
+# Build libhighs + libcasadi_conic_highs as a drop-in replacement for the pair
+# bundled in the CasADi manylinux_2_28 wheels. Uses CasADi's own HiGHS build
+# (WITH_BUILD_HIGHS), so only the HiGHS version differs from the official wheel.
+#
+# Run inside quay.io/pypa/manylinux_2_28_x86_64, the toolchain those wheels use.
+set -euo pipefail
+
+HIGHS_VERSION="${HIGHS_VERSION:-v1.15.1}"
+CASADI_VERSION="${CASADI_VERSION:-3.8.1}"
+BUILD_DIR="${BUILD_DIR:-build-casadi}"
+OUT_DIR="${OUT_DIR:-dist/casadi-${CASADI_VERSION}-highs-${HIGHS_VERSION}}"
+patch_dir="$(cd "$(dirname "$0")/../patches" && pwd)"
+
+src="$BUILD_DIR/casadi-src"
+if [[ ! -d "$src" ]]; then
+  git clone --depth 1 --branch "$CASADI_VERSION" https://github.com/casadi/casadi.git "$src"
+fi
+git -C "$src" checkout -- .
+git -C "$src" apply "$patch_dir"/*.patch
+
+# The thread flags must match the wheel's include/casadi/config.h, or class layouts differ.
+cmake -S "$src" -B "$BUILD_DIR/casadi-build" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DWITH_HIGHS=ON \
+  -DWITH_BUILD_HIGHS=ON \
+  -DWITH_THREAD=ON \
+  -DWITH_THREADSAFE_SYMBOLICS=ON \
+  -DBUILD_HIGHS_VERSION="$HIGHS_VERSION"
+cmake --build "$BUILD_DIR/casadi-build" --target casadi_conic_highs -j"$(nproc)"
+
+rm -rf "$OUT_DIR"
+mkdir -p "$OUT_DIR"
+cp -P "$BUILD_DIR"/casadi-build/external_projects/lib/libhighs.so* "$OUT_DIR/"
+cp -P "$BUILD_DIR"/casadi-build/lib/libcasadi_conic_highs.so* "$OUT_DIR/"
+# The wheel resolves libhighs.so.1 from the plugin's own directory.
+patchelf --set-rpath '$ORIGIN' "$OUT_DIR"/libcasadi_conic_highs.so.*
+ls -la "$OUT_DIR"

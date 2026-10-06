@@ -1,0 +1,122 @@
+diff --git a/casadi/interfaces/highs/highs_interface.cpp b/casadi/interfaces/highs/highs_interface.cpp
+index f2b6989..92e3a77 100644
+--- a/casadi/interfaces/highs/highs_interface.cpp
++++ b/casadi/interfaces/highs/highs_interface.cpp
+@@ -89,12 +89,15 @@ namespace casadi {
+   void HighsInterface::init_dependent() {
+     colinda_.resize(A_.size2()+1);
+     rowa_.resize(A_.nnz());
+-    colindh_.resize(H_.size2()+1);
+-    rowh_.resize(H_.nnz());
++    Sparsity H_lower = tril(H_);
++    colindh_.resize(H_lower.size2()+1);
++    rowh_.resize(H_lower.nnz());
++    lowerh_.resize(H_lower.nnz());
+     copy_vector(A_.colind(), colinda_);
+     copy_vector(A_.row(), rowa_);
+-    copy_vector(H_.colind(), colindh_);
+-    copy_vector(H_.row(), rowh_);
++    copy_vector(H_lower.colind(), colindh_);
++    copy_vector(H_lower.row(), rowh_);
++    copy_vector(H_.get_lower(), lowerh_);
+     if (!discrete_.empty()) {
+       integrality_.resize(nx_);
+       copy_vector(discrete_, integrality_);
+@@ -123,6 +126,7 @@ namespace casadi {
+     codegen_local(g, "rowa", rowa_);
+     codegen_local(g, "colindh", colindh_);
+     codegen_local(g, "rowh", rowh_);
++    codegen_local(g, "lowerh", lowerh_);
+     if (!discrete_.empty()) {
+       codegen_local(g, "integrality", integrality_);
+     }
+@@ -130,6 +134,7 @@ namespace casadi {
+     g << "p.rowa = rowa;\n";
+     g << "p.colindh = colindh;\n";
+     g << "p.rowh = rowh;\n";
++    g << "p.lowerh = lowerh;\n";
+     if (discrete_.empty()) {
+       g << "p.integrality = 0;\n";
+     } else {
+@@ -153,6 +158,7 @@ namespace casadi {
+     p_.rowa  = get_ptr(rowa_);
+     p_.colindh  = get_ptr(colindh_);
+     p_.rowh  = get_ptr(rowh_);
++    p_.lowerh  = get_ptr(lowerh_);
+     p_.integrality  = get_ptr(integrality_);
+ 
+     casadi_highs_setup(&p_);
+diff --git a/casadi/interfaces/highs/highs_interface.hpp b/casadi/interfaces/highs/highs_interface.hpp
+index f809762..8f8cc96 100644
+--- a/casadi/interfaces/highs/highs_interface.hpp
++++ b/casadi/interfaces/highs/highs_interface.hpp
+@@ -163,6 +163,8 @@ namespace casadi {
+ 
+     std::vector<int> colinda_, rowa_;
+     std::vector<int> colindh_, rowh_;
++    // Nonzeros of H_ in its lower triangle, the part passed to HiGHS
++    std::vector<int> lowerh_;
+     std::vector<int> integrality_;
+ 
+     // Object to store options; distinct from actual solver object
+diff --git a/casadi/interfaces/highs/highs_runtime.hpp b/casadi/interfaces/highs/highs_runtime.hpp
+index 42a1beb..e10ce54 100644
+--- a/casadi/interfaces/highs/highs_runtime.hpp
++++ b/casadi/interfaces/highs/highs_runtime.hpp
+@@ -29,7 +29,7 @@ struct casadi_highs_prob {
+   const casadi_qp_prob<T1>* qp;
+ 
+   const int *colinda, *rowa;
+-  const int *colindh, *rowh;
++  const int *colindh, *rowh, *lowerh;
+   const int *integrality;
+ };
+ // C-REPLACE "casadi_highs_prob<T1>" "struct casadi_highs_prob"
+@@ -49,6 +49,8 @@ struct casadi_highs_data {
+   const casadi_highs_prob<T1>* prob;
+   // Problem structure
+   casadi_qp_data<T1>* qp;
++  // Lower triangle of H
++  T1* h;
+ 
+   int return_status;
+ 
+@@ -89,13 +91,13 @@ void casadi_highs_free_mem(casadi_highs_data<T1>* d) {
+ template<typename T1>
+ void casadi_highs_work(const casadi_highs_prob<T1>* p, casadi_int* sz_arg, casadi_int* sz_res, casadi_int* sz_iw, casadi_int* sz_w) {
+   casadi_qp_work(p->qp, sz_arg, sz_res, sz_iw, sz_w);
++  *sz_w += p->colindh[p->qp->nx];
+ }
+ 
+ // SYMBOL "highs_set_work"
+ template<typename T1>
+ void casadi_highs_set_work(casadi_highs_data<T1>* d, const T1*** arg, T1*** res, casadi_int** iw, T1** w) {
+-  
+-
++  d->h = *w; *w += d->prob->colindh[d->prob->qp->nx];
+ }
+ 
+ 
+@@ -113,15 +115,20 @@ int casadi_highs_solve(casadi_highs_data<T1>* d, const double** arg, double** re
+ 
+   // Create HiGHS instance and pass problem
+   int status;
++  casadi_int k, nnz_h;
+   const int matrix_format = 1;
+   const int sense = 1;
+   const double offset = 0.0;
+ 
+-  status = Highs_passModel(d->highs, p_qp->nx, p_qp->na, p_qp->nnz_a, p_qp->nnz_h,
++  // HiGHS >= 1.14 adds upper-triangle entries to the lower ones, so pass only the lower triangle
++  nnz_h = p->colindh[p_qp->nx];
++  for (k=0; k<nnz_h; ++k) d->h[k] = d_qp->h ? d_qp->h[p->lowerh[k]] : 0;
++
++  status = Highs_passModel(d->highs, p_qp->nx, p_qp->na, p_qp->nnz_a, nnz_h,
+     matrix_format, matrix_format, sense, offset,
+     d_qp->g, d_qp->lbx, d_qp->ubx, d_qp->lba, d_qp->uba,
+     p->colinda, p->rowa, d_qp->a,
+-    p->colindh, p->rowh, d_qp->h,
++    p->colindh, p->rowh, d->h,
+     p->integrality);
+   
+   if (!(status==kHighsStatusOk || status==kHighsStatusWarning)) return 1;

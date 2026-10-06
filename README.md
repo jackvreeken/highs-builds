@@ -130,6 +130,37 @@ Builds are automated via GitHub Actions:
 - **Manual dispatch**: Trigger builds with optional version override
 - **Automatic releases**: Creates GitHub releases with platform-specific archives
 
+## CasADi builds
+
+Releases tagged `casadi-3.8.1-highs-<version>` hold `libhighs` and `libcasadi_conic_highs` built
+against that HiGHS version, as a drop-in replacement for the pair bundled in the CasADi 3.8.1
+`manylinux_2_28_x86_64` (abi3) wheels. The plugin embeds HiGHS C++ classes, so it has to be
+rebuilt for every HiGHS version: replacing `libhighs` alone crashes.
+
+The build uses CasADi's own HiGHS build with the wheel's thread flags and applies `patches/`.
+`casadi-highs-lower-hessian.patch` passes only the lower triangle of the Hessian: CasADi passes the
+full matrix as triangular, which HiGHS >= 1.14 sums into doubled off-diagonals.
+
+To install a release:
+
+```bash
+casadi_dir=$(python -c 'import casadi, os; print(os.path.dirname(casadi.__file__))')
+rm -f "$casadi_dir"/libhighs.so* "$casadi_dir"/libcasadi_conic_highs.so*
+curl -L https://github.com/jackvreeken/highs-builds/releases/download/casadi-3.8.1-highs-v1.15.1/casadi-3.8.1-highs-v1.15.1-manylinux_2_28_x86_64.tar.gz \
+  | tar -xz -C "$casadi_dir"
+```
+
+To build and test locally:
+
+```bash
+docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION=v1.15.1 quay.io/pypa/manylinux_2_28_x86_64 \
+  bash -c "scripts/build-casadi-highs.sh && scripts/test-casadi-highs.sh"
+```
+
+The `Build HiGHS for CasADi` workflow builds the latest patch release of each HiGHS minor version
+from v1.10 that has no release yet, weekly and on every push to master. Dispatch it with
+`highs_versions` to build specific versions; delete a release to have it rebuilt.
+
 ## License
 
 HiGHS is licensed under the MIT License. See the [HiGHS repository](https://github.com/ERGO-Code/HiGHS) for details.
