@@ -20,6 +20,8 @@ concurrency:
 
 env:
   CASADI_VERSION: 3.8.1
+  # The nightly release tracks the head of this HiGHS branch
+  HIGHS_NIGHTLY_BRANCH: latest
   # The Windows image is the one CasADi builds its wheels with (MXE GCC 11.2).
   PLATFORMS: |
     [
@@ -35,8 +37,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       builds: ${{ steps.select.outputs.builds }}
-      versions: ${{ steps.select.outputs.versions }}
-      windows_versions: ${{ steps.select.outputs.windows_versions }}
+      releases: ${{ steps.select.outputs.releases }}
+      windows: ${{ steps.select.outputs.windows }}
     steps:
       - name: Select builds
         id: select
@@ -45,37 +47,44 @@ jobs:
           REQUESTED: ${{ inputs.highs_versions }}
         run: |
           if [[ -n "$REQUESTED" ]]; then
-            candidates=$(printf '%s\n' $REQUESTED | sort -V)
+            versions=$(printf '%s\n' $REQUESTED | sort -V)
           else
-            candidates=$(gh release list --repo ERGO-Code/HiGHS --limit 100 --exclude-drafts --exclude-pre-releases \
+            versions=$(gh release list --repo ERGO-Code/HiGHS --limit 100 --exclude-drafts --exclude-pre-releases \
                 --json tagName --jq '.[].tagName' \
               | grep -E '^v1\.[0-9]+\.[0-9]+$' | sort -V \
               | awk -F. '$2 >= 10 { latest[$2] = $0 } END { for (m in latest) print latest[m] }' | sort -V)
           fi
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            candidates=$(printf '%s\n' "$candidates" | sed -n '1p;$p' | sort -uV)
+            versions=$(printf '%s\n' "$versions" | sed -n '1p;$p' | sort -uV)
           fi
-          # One "<version> <platform>" line per release asset that does not exist yet
-          missing=$(for v in $candidates; do
+          # "<release tag> <HiGHS ref>" per release
+          targets=$(for v in $versions; do echo "$v $v"; done)
+          if [[ -z "$REQUESTED" ]]; then
+            targets+=$'\n'"nightly $(gh api "repos/ERGO-Code/HiGHS/commits/$HIGHS_NIGHTLY_BRANCH" --jq .sha)"
+          fi
+          # One "<release tag> <HiGHS ref> <platform>" line per release asset that does not exist yet
+          missing=$(while read -r tag ref; do
+            [[ -n "$tag" ]] || continue
+            release="casadi-$CASADI_VERSION-highs-$tag"
             assets=""
-            if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
-              assets=$(gh release view "casadi-$CASADI_VERSION-highs-$v" --repo "$GITHUB_REPOSITORY" \
-                --json assets --jq '.assets[].name' 2>/dev/null || true)
+            if [[ "$GITHUB_EVENT_NAME" != pull_request ]] \
+                && gh release view "$release" --repo "$GITHUB_REPOSITORY" --json body --jq .body 2>/dev/null \
+                  | grep -q "$ref"; then
+              assets=$(gh release view "$release" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
             fi
             for p in $(jq -r '.[].platform' <<< "$PLATFORMS"); do
-              grep -q "^casadi-$CASADI_VERSION-highs-$v-$p\." <<< "$assets" || echo "$v $p"
+              grep -q "^$release-$p\." <<< "$assets" || echo "$tag $ref $p"
             done
-          done)
-          builds=$(jq -Rnc --argjson platforms "$PLATFORMS" \
-            '[inputs | select(length > 0) | split(" ") as [$v, $p] | $platforms[] | select(.platform == $p) | . + {highs_version: $v}]' \
-            <<< "$missing")
+          done <<< "$targets")
+          builds=$(jq -Rnc --argjson platforms "$PLATFORMS" '[inputs | select(length > 0) | split(" ") as [$t, $r, $p]
+            | $platforms[] | select(.platform == $p) | . + {tag: $t, highs_version: $r}]' <<< "$missing")
           echo "Builds: $builds"
           echo "builds=$builds" >> "$GITHUB_OUTPUT"
-          echo "versions=$(jq -c '[.[].highs_version] | unique' <<< "$builds")" >> "$GITHUB_OUTPUT"
-          echo "windows_versions=$(jq -c '[.[] | select(.platform == "win_amd64") | .highs_version]' <<< "$builds")" >> "$GITHUB_OUTPUT"
+          echo "releases=$(jq -c 'map({tag, highs_version}) | unique' <<< "$builds")" >> "$GITHUB_OUTPUT"
+          echo "windows=$(jq -c 'map(select(.platform == "win_amd64") | {tag, highs_version})' <<< "$builds")" >> "$GITHUB_OUTPUT"
 
   build:
-    name: HiGHS ${{ matrix.highs_version }} ${{ matrix.platform }}
+    name: HiGHS ${{ matrix.tag }} ${{ matrix.platform }}
     needs: plan
     if: needs.plan.outputs.builds != '[]'
     runs-on: ${{ matrix.runner }}
@@ -85,50 +94,56 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.builds) }}
     env:
       HIGHS_VERSION: ${{ matrix.highs_version }}
+      TAG: ${{ matrix.tag }}
       PLATFORM: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set archive name
+        run: |
+          echo "NAME=casadi-$CASADI_VERSION-highs-$TAG" >> "$GITHUB_ENV"
+          echo "OUT_DIR=dist/casadi-$CASADI_VERSION-highs-$TAG" >> "$GITHUB_ENV"
+
       - name: Build
         run: |
-          docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION -e CASADI_VERSION \
+          docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION -e CASADI_VERSION -e OUT_DIR \
             ${{ matrix.image }} bash scripts/build-casadi-highs.sh
 
       - name: Test
         if: matrix.platform != 'win_amd64'
         run: |
-          docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION -e CASADI_VERSION \
+          docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION -e CASADI_VERSION -e OUT_DIR \
             ${{ matrix.image }} bash scripts/test-casadi-highs.sh
 
       - name: Package
         run: |
-          name="casadi-$CASADI_VERSION-highs-$HIGHS_VERSION"
           if [[ "$PLATFORM" == win_amd64 ]]; then
-            (cd "dist/$name" && zip -q "$GITHUB_WORKSPACE/$name-$PLATFORM.zip" *)
+            (cd "$OUT_DIR" && zip -q "$GITHUB_WORKSPACE/$NAME-$PLATFORM.zip" *)
           else
-            tar -czf "$name-$PLATFORM.tar.gz" -C "dist/$name" .
+            tar -czf "$NAME-$PLATFORM.tar.gz" -C "$OUT_DIR" .
           fi
 
       # Windows archives are released only once test-windows has passed
       - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform == 'win_amd64' && 'untested' || 'release' }}-${{ matrix.highs_version }}-${{ matrix.platform }}
-          path: casadi-*-highs-*-${{ matrix.platform }}.*
+          name: ${{ matrix.platform == 'win_amd64' && 'untested' || 'release' }}-${{ matrix.tag }}-${{ matrix.platform }}
+          path: ${{ env.NAME }}-${{ matrix.platform }}.*
           retention-days: 7
 
   test-windows:
-    name: Test HiGHS ${{ matrix.highs_version }} win_amd64
+    name: Test HiGHS ${{ matrix.tag }} win_amd64
     needs: [plan, build]
-    if: ${{ !cancelled() && needs.plan.outputs.windows_versions != '[]' }}
+    if: ${{ !cancelled() && needs.plan.outputs.windows != '[]' }}
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        highs_version: ${{ fromJSON(needs.plan.outputs.windows_versions) }}
+        include: ${{ fromJSON(needs.plan.outputs.windows) }}
     env:
       HIGHS_VERSION: ${{ matrix.highs_version }}
+      TAG: ${{ matrix.tag }}
     defaults:
       run:
         shell: bash
@@ -136,10 +151,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set archive name
+        run: |
+          echo "NAME=casadi-$CASADI_VERSION-highs-$TAG" >> "$GITHUB_ENV"
+          echo "OUT_DIR=dist/casadi-$CASADI_VERSION-highs-$TAG" >> "$GITHUB_ENV"
+
       - name: Download archive
         uses: actions/download-artifact@v4
         with:
-          name: untested-${{ matrix.highs_version }}-win_amd64
+          name: untested-${{ matrix.tag }}-win_amd64
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -148,37 +168,37 @@ jobs:
 
       - name: Test
         run: |
-          name="casadi-$CASADI_VERSION-highs-$HIGHS_VERSION"
-          mkdir -p "dist/$name"
-          unzip -q "$name-win_amd64.zip" -d "dist/$name"
+          mkdir -p "$OUT_DIR"
+          unzip -q "$NAME-win_amd64.zip" -d "$OUT_DIR"
           git clone --depth 1 --branch "$CASADI_VERSION" https://github.com/casadi/casadi.git build-casadi/casadi-src
           PYTHON=python scripts/test-casadi-highs.sh
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.highs_version }}-win_amd64
-          path: casadi-*-highs-*-win_amd64.zip
+          name: release-${{ matrix.tag }}-win_amd64
+          path: ${{ env.NAME }}-win_amd64.zip
           retention-days: 7
 
   release:
-    name: Release HiGHS ${{ matrix.highs_version }}
+    name: Release HiGHS ${{ matrix.tag }}
     needs: [plan, build, test-windows]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.plan.outputs.versions != '[]' }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.plan.outputs.releases != '[]' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
-        highs_version: ${{ fromJSON(needs.plan.outputs.versions) }}
+        include: ${{ fromJSON(needs.plan.outputs.releases) }}
     env:
       HIGHS_VERSION: ${{ matrix.highs_version }}
+      TAG: ${{ matrix.tag }}
     steps:
       - name: Download archives
         uses: actions/download-artifact@v4
         with:
-          pattern: release-${{ matrix.highs_version }}-*
+          pattern: release-${{ matrix.tag }}-*
           merge-multiple: true
           path: assets
 
@@ -189,12 +209,21 @@ jobs:
           shopt -s nullglob
           archives=(assets/*)
           if (( ${#archives[@]} == 0 )); then
-            echo "No tested archives for $HIGHS_VERSION"
+            echo "No tested archives for $TAG"
             exit 1
           fi
-          export name="casadi-$CASADI_VERSION-highs-$HIGHS_VERSION"
-          envsubst '$CASADI_VERSION $HIGHS_VERSION $GITHUB_REPOSITORY $name' > notes.md <<'EOF'
-          `libhighs` and `libcasadi_conic_highs` built against HiGHS $HIGHS_VERSION, as a drop-in
+          export name="casadi-$CASADI_VERSION-highs-$TAG"
+          if [[ "$TAG" == nightly ]]; then
+            export built="HiGHS commit $HIGHS_VERSION (head of \`$HIGHS_NIGHTLY_BRANCH\`)"
+            title="HiGHS nightly for CasADi $CASADI_VERSION"
+            flags=(--prerelease)
+          else
+            export built="HiGHS $HIGHS_VERSION"
+            title="HiGHS $HIGHS_VERSION for CasADi $CASADI_VERSION"
+            flags=()
+          fi
+          envsubst '$CASADI_VERSION $built $GITHUB_REPOSITORY $name' > notes.md <<'EOF'
+          `libhighs` and `libcasadi_conic_highs` built against $built, as a drop-in
           replacement for the pair bundled in the CasADi $CASADI_VERSION abi3 wheels for
           `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64` and `win_amd64`.
 
@@ -208,10 +237,16 @@ jobs:
             | tar -xz -C "$casadi_dir"
           ```
           EOF
-          if gh release view "$name" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if body=$(gh release view "$name" --repo "$GITHUB_REPOSITORY" --json body --jq .body 2>/dev/null); then
+            # Archives built from another HiGHS commit must not outlive this update
+            if ! grep -q "$HIGHS_VERSION" <<< "$body"; then
+              for asset in $(gh release view "$name" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'); do
+                gh release delete-asset "$name" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+              done
+            fi
             gh release edit "$name" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
           else
-            gh release create "$name" --repo "$GITHUB_REPOSITORY" \
-              --title "HiGHS $HIGHS_VERSION for CasADi $CASADI_VERSION" --latest=false --notes-file notes.md
+            gh release create "$name" --repo "$GITHUB_REPOSITORY" --title "$title" --latest=false "${flags[@]}" \
+              --notes-file notes.md
           fi
           gh release upload "$name" "${archives[@]}" --repo "$GITHUB_REPOSITORY" --clobber

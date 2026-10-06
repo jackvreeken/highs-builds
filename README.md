@@ -163,6 +163,8 @@ docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION=v1.15.1 quay.io/pypa/m
 The `Build HiGHS for CasADi` workflow builds the latest patch release of each HiGHS minor version
 from v1.10, for every platform whose archive the release lacks, weekly and on every push to master.
 Dispatch it with `highs_versions` to build specific versions; delete an archive to have it rebuilt.
+The same runs refresh the `casadi-3.8.1-highs-nightly` pre-release whenever the head of HiGHS's
+`latest` development branch has moved.
 
 ## License
 
