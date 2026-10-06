@@ -12,12 +12,14 @@ PYTHON="${PYTHON:-/opt/python/cp314-cp314/bin/python}"
 venv="$(realpath -m "$BUILD_DIR/test-venv")"
 rm -rf "$venv"
 "$PYTHON" -m venv "$venv"
-"$venv/bin/pip" install --quiet "casadi==$CASADI_VERSION" numpy scipy
-casadi_dir="$("$venv/bin/python" -c 'import casadi, os; print(os.path.dirname(casadi.__file__))')"
-rm -f "$casadi_dir"/libhighs.so* "$casadi_dir"/libcasadi_conic_highs.so*
+python="$venv/bin/python"
+[[ -d "$venv/Scripts" ]] && python="$venv/Scripts/python.exe"
+"$python" -m pip install --quiet "casadi==$CASADI_VERSION" numpy scipy
+casadi_dir="$("$python" -c 'import casadi, pathlib; print(pathlib.Path(casadi.__file__).parent.as_posix())')"
+rm -f "$casadi_dir"/libhighs.* "$casadi_dir"/libcasadi_conic_highs.*
 cp -P "$OUT_DIR"/* "$casadi_dir/"
 
-banner="$("$venv/bin/python" -c '
+banner="$("$python" -c '
 import casadi as ca
 x = ca.SX.sym("x")
 ca.qpsol("s", "highs", {"x": x, "f": x**2})(lbx=1)' 2>&1 | grep "Running HiGHS")"
@@ -25,4 +27,4 @@ echo "$banner"
 [[ "$banner" == "Running HiGHS ${HIGHS_VERSION#v} "* ]]
 
 cd "$BUILD_DIR/casadi-src/test/python"
-"$venv/bin/python" conic.py
+"$python" conic.py

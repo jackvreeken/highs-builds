@@ -1,9 +1,10 @@
 #!/bin/bash
 # Build libhighs + libcasadi_conic_highs as a drop-in replacement for the pair
-# bundled in the CasADi manylinux_2_28 wheels. Uses CasADi's own HiGHS build
+# bundled in the CasADi abi3 wheels. Uses CasADi's own HiGHS build
 # (WITH_BUILD_HIGHS), so only the HiGHS version differs from the official wheel.
 #
-# Run inside quay.io/pypa/manylinux_2_28_x86_64, the toolchain those wheels use.
+# Run inside quay.io/pypa/manylinux_2_28_<arch>, or for win_amd64 inside the MXE
+# image CasADi builds its wheels with: the plugin links the wheel's libstdc++.
 set -euo pipefail
 
 HIGHS_VERSION="${HIGHS_VERSION:-v1.15.1}"
@@ -29,10 +30,14 @@ cmake -S "$src" -B "$BUILD_DIR/casadi-build" \
   -DBUILD_HIGHS_VERSION="$HIGHS_VERSION"
 cmake --build "$BUILD_DIR/casadi-build" --target casadi_conic_highs -j"$(nproc)"
 
+build="$BUILD_DIR/casadi-build"
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
-cp -P "$BUILD_DIR"/casadi-build/external_projects/lib/libhighs.so* "$OUT_DIR/"
-cp -P "$BUILD_DIR"/casadi-build/lib/libcasadi_conic_highs.so* "$OUT_DIR/"
-# The wheel resolves libhighs.so.1 from the plugin's own directory.
-patchelf --set-rpath '$ORIGIN' "$OUT_DIR"/libcasadi_conic_highs.so.*
+if [[ -f "$build/libcasadi_conic_highs.dll" ]]; then
+  cp "$build/external_projects/bin/libhighs.dll" "$build/libcasadi_conic_highs.dll" "$OUT_DIR/"
+else
+  cp -P "$build"/external_projects/lib/libhighs.so* "$build"/lib/libcasadi_conic_highs.so* "$OUT_DIR/"
+  # The wheel resolves libhighs.so.1 from the plugin's own directory.
+  patchelf --set-rpath '$ORIGIN' "$OUT_DIR"/libcasadi_conic_highs.so.*
+fi
 ls -la "$OUT_DIR"
