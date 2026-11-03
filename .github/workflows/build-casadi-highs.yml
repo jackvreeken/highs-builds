@@ -19,7 +19,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
 
 env:
-  CASADI_VERSION: 3.8.1
+  CASADI_VERSION: 3.8.2
   # The nightly release tracks the head of this HiGHS branch
   HIGHS_NIGHTLY_BRANCH: latest
   # The Windows image is the one CasADi builds its wheels with (MXE GCC 11.2).

@@ -4,7 +4,7 @@
 set -euo pipefail
 
 HIGHS_VERSION="${HIGHS_VERSION:-v1.15.1}"
-CASADI_VERSION="${CASADI_VERSION:-3.8.1}"
+CASADI_VERSION="${CASADI_VERSION:-3.8.2}"
 BUILD_DIR="${BUILD_DIR:-build-casadi}"
 OUT_DIR="${OUT_DIR:-dist/casadi-${CASADI_VERSION}-highs-${HIGHS_VERSION}}"
 PYTHON="${PYTHON:-/opt/python/cp314-cp314/bin/python}"

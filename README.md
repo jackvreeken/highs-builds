@@ -132,8 +132,8 @@ Builds are automated via GitHub Actions:
 
 ## CasADi builds
 
-Releases tagged `casadi-3.8.1-highs-<version>` hold `libhighs` and `libcasadi_conic_highs` built
-against that HiGHS version, as a drop-in replacement for the pair bundled in the CasADi 3.8.1 abi3
+Releases tagged `casadi-3.8.2-highs-<version>` hold `libhighs` and `libcasadi_conic_highs` built
+against that HiGHS version, as a drop-in replacement for the pair bundled in the CasADi 3.8.2 abi3
 wheels for `manylinux_2_28_x86_64`, `manylinux_2_28_aarch64` and `win_amd64`. The plugin embeds
 HiGHS C++ classes, so it has to be rebuilt for every HiGHS version: replacing `libhighs` alone
 crashes.
@@ -149,7 +149,7 @@ To install a release:
 ```bash
 casadi_dir=$(python -c 'import casadi, pathlib; print(pathlib.Path(casadi.__file__).parent.as_posix())')
 rm -f "$casadi_dir"/libhighs.* "$casadi_dir"/libcasadi_conic_highs.*
-curl -L https://github.com/jackvreeken/highs-builds/releases/download/casadi-3.8.1-highs-v1.15.1/casadi-3.8.1-highs-v1.15.1-manylinux_2_28_x86_64.tar.gz \
+curl -L https://github.com/jackvreeken/highs-builds/releases/download/casadi-3.8.2-highs-v1.15.1/casadi-3.8.2-highs-v1.15.1-manylinux_2_28_x86_64.tar.gz \
   | tar -xz -C "$casadi_dir"
 ```
 
@@ -163,7 +163,7 @@ docker run --rm -v "$PWD:/work" -w /work -e HIGHS_VERSION=v1.15.1 quay.io/pypa/m
 The `Build HiGHS for CasADi` workflow builds the latest patch release of each HiGHS minor version
 from v1.10, for every platform whose archive the release lacks, weekly and on every push to master.
 Dispatch it with `highs_versions` to build specific versions; delete an archive to have it rebuilt.
-The same runs refresh the `casadi-3.8.1-highs-nightly` pre-release whenever the head of HiGHS's
+The same runs refresh the `casadi-3.8.2-highs-nightly` pre-release whenever the head of HiGHS's
 `latest` development branch has moved.
 
 ## License
